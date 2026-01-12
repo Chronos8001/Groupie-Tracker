@@ -47,15 +47,19 @@ func main() {
 
 		// On lance les récupérations de données dans des goroutines pour ne pas bloquer l'interface
 		go func() {
-			data := api.GetFromURL(artist.LocationsURL)
+			// Utilise FetchLocation au lieu de GetFromURL
+			data := api.FetchLocation(artist.LocationsURL)
+			// Utilise Refresh() pour forcer la mise à jour visuelle si nécessaire
 			locLabel.SetText("Localisations :\n" + data)
 		}()
 		go func() {
-			data := api.GetFromURL(artist.ConcertDates)
+			// Utilise FetchDates au lieu de GetFromURL
+			data := api.FetchDates(artist.ConcertDates)
 			dateLabel.SetText("Dates :\n" + data)
 		}()
 		go func() {
-			data := api.GetFromURL(artist.RelationsURL)
+			// Utilise FetchRelations au lieu de GetFromURL
+			data := api.FetchRelations(artist.RelationsURL)
 			relLabel.SetText("Relations :\n" + data)
 		}()
 

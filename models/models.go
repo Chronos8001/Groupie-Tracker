@@ -11,3 +11,16 @@ type Artist struct {
 	ConcertDates string   `json:"concertDates"`
 	RelationsURL string   `json:"relations"`
 }
+
+// Nouvelles structures pour le parsing
+type LocationData struct {
+	Locations []string `json:"locations"`
+}
+
+type DateData struct {
+	Dates []string `json:"dates"`
+}
+
+type RelationData struct {
+	DatesLocations map[string][]string `json:"datesLocations"`
+}
