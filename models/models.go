@@ -1,4 +1,4 @@
-package api
+package groupie
 
 type Artist struct {
 	ID           int      `json:"id"`

@@ -1,8 +1,9 @@
-package api
+package groupie
 
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"time"
 )
@@ -13,6 +14,7 @@ var httpClient = &http.Client{
 	Timeout: 10 * time.Second,
 }
 
+// FetchArtists récupère la liste principale
 func FetchArtists() ([]Artist, error) {
 	resp, err := httpClient.Get(baseURL + "/artists")
 	if err != nil {
@@ -33,62 +35,22 @@ func FetchArtists() ([]Artist, error) {
 	return artists, nil
 }
 
-func FetchLocation() ([]Artist, error) {
-	resp, err := httpClient.Get(baseURL + "/artists")
+// GetFromURL télécharge le contenu d'une URL (pour les details locations/dates/relations)
+func GetFromURL(url string) string {
+	resp, err := httpClient.Get(url)
 	if err != nil {
-		return nil, err
+		return "Erreur de chargement: " + err.Error()
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return nil, errors.New("API error: " + resp.Status)
+		return "Erreur serveur: " + resp.Status
 	}
 
-	var LocationsURL []Artist
-	err = json.NewDecoder(resp.Body).Decode(&LocationsURL)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return "Erreur lecture: " + err.Error()
 	}
-
-	return LocationsURL, nil
-}
-
-func FetchDates() ([]Artist, error) {
-	resp, err := httpClient.Get(baseURL + "/artists")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return nil, errors.New("API error: " + resp.Status)
-	}
-
-	var DatesURL []Artist
-	err = json.NewDecoder(resp.Body).Decode(&DatesURL)
-	if err != nil {
-		return nil, err
-	}
-
-	return DatesURL, nil
-}
-
-func FetchRelations() ([]Artist, error) {
-	resp, err := httpClient.Get(baseURL + "/artists")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return nil, errors.New("API error: " + resp.Status)
-	}
-
-	var RelationsURL []Artist
-	err = json.NewDecoder(resp.Body).Decode(&RelationsURL)
-	if err != nil {
-		return nil, err
-	}
-
-	return RelationsURL, nil
+	// Retourne le JSON brut sous forme de string pour l'affichage
+	return string(body)
 }
