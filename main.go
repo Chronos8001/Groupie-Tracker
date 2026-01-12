@@ -18,11 +18,11 @@ func main() {
 	text2 := canvas.NewText("There", green)
 	text3 := canvas.NewText("General Kenobi", green)
 
-	text2.Move(fyne.NewPos(20, 20))
-	text3.Move(fyne.NewPos(20, 40))
-	content := container.NewWithoutLayout(text1, text2, text3)
+	text1.Move(fyne.NewPos(20, 20))
+	text2.Move(fyne.NewPos(20, 40))
+	text3.Move(fyne.NewPos(20, 60))
+	content := container.NewWithoutLayout(widget.NewLabel("Welcome to Groupie Tracker!"), text1, text2, text3)
 
-	w.SetContent(widget.NewLabel("Welcome to Groupie Tracker!"))
 	w.SetContent(content)
 	w.ShowAndRun()
 }
