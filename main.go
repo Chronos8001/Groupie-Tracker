@@ -2,6 +2,8 @@ package main
 
 import (
 	"log"
+	"sort"
+	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -13,121 +15,147 @@ import (
 )
 
 func main() {
+
 	// Création de l'application Fyne
 	groupie := app.New()
 	w := groupie.NewWindow("Groupie Tracker")
-	w.Resize(fyne.NewSize(400, 600)) // Taille de la fenêtre
+	w.Resize(fyne.NewSize(400, 600))
 
-	// 1. Récupération des données depuis l'API Groupie Tracker
+	// 1. Récupération des artistes depuis l'API
 	log.Println("Téléchargement des artistes...")
 	artists, err := api.FetchArtists()
 	if err != nil {
-		// Si l'API ne répond pas, on affiche un message d'erreur dans la fenêtre
-		log.Println("Erreur API:", err)
-		w.SetContent(widget.NewLabel("Impossible de charger les données: " + err.Error()))
+		w.SetContent(widget.NewLabel("Erreur API: " + err.Error()))
 		w.ShowAndRun()
 		return
 	}
 
-	// Variable déclarée ici pour pouvoir rappeler la liste depuis la page de détails
-	var showList func()
+	// 2. Tri alphabétique initial (A → Z)
+	sort.Slice(artists, func(i, j int) bool {
+		return strings.ToLower(artists[i].Name) < strings.ToLower(artists[j].Name)
+	})
 
-	// 2. Fonction d'affichage des détails d'un artiste
+	// Liste filtrée (celle réellement affichée)
+	filtered := make([]api.Artist, len(artists))
+	copy(filtered, artists)
+
+	var showList func() // Déclaration pour pouvoir rappeler la liste
+
+	// 3. Page de détails d'un artiste
 	showDetails := func(artist api.Artist) {
 
-		// Titre avec le nom de l'artiste
+		// Titre avec nom de l'artiste
 		header := widget.NewLabelWithStyle(
 			artist.Name,
 			fyne.TextAlignCenter,
 			fyne.TextStyle{Bold: true},
 		)
 
-		// Labels affichés avant le chargement réel des données
+		// Labels affichés avant chargement réel
 		locLabel := widget.NewLabel("Chargement des localisations...")
-		locLabel.Wrapping = fyne.TextWrapWord
-
 		dateLabel := widget.NewLabel("Chargement des dates...")
-		dateLabel.Wrapping = fyne.TextWrapWord
-
 		relLabel := widget.NewLabel("Chargement des relations...")
+
+		locLabel.Wrapping = fyne.TextWrapWord
+		dateLabel.Wrapping = fyne.TextWrapWord
 		relLabel.Wrapping = fyne.TextWrapWord
 
-		// Chargement des données en arrière-plan (goroutines)
-		// Cela évite de bloquer l'interface graphique
+		// Chargement asynchrone pour ne pas bloquer l'interface
+		go func() { locLabel.SetText("Localisations:\n" + api.FetchLocation(artist.LocationsURL)) }()
+		go func() { dateLabel.SetText("Dates:\n" + api.FetchDates(artist.ConcertDates)) }()
+		go func() { relLabel.SetText("Relations:\n" + api.FetchRelations(artist.RelationsURL)) }()
 
-		go func() {
-			data := api.FetchLocation(artist.LocationsURL)
-			locLabel.SetText("Localisations :\n" + data)
-		}()
+		// Bouton retour
+		backBtn := widget.NewButton("Retour", func() { showList() })
 
-		go func() {
-			data := api.FetchDates(artist.ConcertDates)
-			dateLabel.SetText("Dates :\n" + data)
-		}()
-
-		go func() {
-			data := api.FetchRelations(artist.RelationsURL)
-			relLabel.SetText("Relations :\n" + data)
-		}()
-
-		// Bouton pour revenir à la liste principale
-		backBtn := widget.NewButton("Retour à la liste", func() {
-			showList()
-		})
-
-		// Mise en page verticale des informations
-		detailsContent := container.NewVBox(
+		// Mise en page verticale
+		content := container.NewVBox(
 			header,
 			widget.NewSeparator(),
 			locLabel,
 			dateLabel,
 			relLabel,
-			layout.NewSpacer(), // Espace flexible pour pousser le bouton vers le bas
+			layout.NewSpacer(),
 			backBtn,
 		)
 
-		// Ajout d'un scroll pour éviter que le texte dépasse l'écran
-		scroll := container.NewVScroll(detailsContent)
-		w.SetContent(scroll)
+		w.SetContent(container.NewVScroll(content))
 	}
 
-	// 3. Création de la liste principale des artistes
-	list := widget.NewList(
-		// Nombre d'éléments dans la liste
-		func() int {
-			return len(artists)
-		},
+	// 4. Liste principale des artistes
+	var list *widget.List
 
-		// Template d'un élément de liste (un bouton ici)
+	list = widget.NewList(
+		// Nombre d'éléments affichés = taille de la liste filtrée
+		func() int { return len(filtered) },
+
+		// Template d'un élément (un bouton)
 		func() fyne.CanvasObject {
 			btn := widget.NewButton("Nom", nil)
-			btn.Alignment = widget.ButtonAlignLeading // Alignement à gauche
+			btn.Alignment = widget.ButtonAlignLeading
 			return btn
 		},
 
-		// Remplissage de chaque élément avec les données réelles
+		// Remplissage d'un élément avec les données réelles
 		func(i widget.ListItemID, o fyne.CanvasObject) {
-			artist := artists[i]
+			artist := filtered[i]
 			button := o.(*widget.Button)
 			button.SetText(artist.Name)
 
-			// Lorsqu'on clique sur un artiste → afficher ses détails
-			button.OnTapped = func() {
-				showDetails(artist)
-			}
+			// Clic → page de détails
+			button.OnTapped = func() { showDetails(artist) }
 		},
 	)
 
-	// Fonction pour afficher la vue principale (liste des artistes)
+	// 5. Barre de recherche dynamique (façon Google)
+	search := widget.NewEntry()
+	search.SetPlaceHolder("Rechercher un artiste...")
+
+	search.OnChanged = func(text string) {
+
+		// On convertit en minuscule pour comparer proprement les caractères ASCII
+		text = strings.ToLower(text)
+
+		// On vide la liste filtrée
+		filtered = filtered[:0]
+
+		// On parcourt la liste complète
+		for _, a := range artists {
+			name := strings.ToLower(a.Name)
+
+			// Recherche façon Google :
+			// si le nom contient ce que l'utilisateur tape → on garde
+			if strings.Contains(name, text) {
+				filtered = append(filtered, a)
+			}
+		}
+
+		// TRI ALPHABÉTIQUE DES RÉSULTATS FILTRÉS
+		sort.Slice(filtered, func(i, j int) bool {
+			return strings.ToLower(filtered[i].Name) < strings.ToLower(filtered[j].Name)
+		})
+
+		// Mise à jour visuelle
+		list.Refresh()
+	}
+	// 6. Affichage principal (liste + recherche)
 	showList = func() {
+
 		title := widget.NewLabelWithStyle(
 			"Liste des Artistes",
 			fyne.TextAlignCenter,
 			fyne.TextStyle{Bold: true},
 		)
 
-		// Border layout : titre en haut, liste au centre
-		content := container.NewBorder(title, nil, nil, nil, list)
+		// Border layout :
+		// Haut = titre + barre de recherche
+		// Centre = liste filtrée
+		content := container.NewBorder(
+			container.NewVBox(title, search),
+			nil, nil, nil,
+			list,
+		)
+
 		w.SetContent(content)
 	}
 
