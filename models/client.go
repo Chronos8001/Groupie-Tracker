@@ -130,3 +130,89 @@ func FetchRelations(url string) string {
 	}
 	return builder.String() // Format final lisible
 }
+
+// nouveaux
+
+// FetchImage récupère l'URL de l'image d'un artiste
+func FetchImage(url string) (string, error) {
+	resp, err := httpClient.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return "", errors.New("API error: " + resp.Status)
+	}
+
+	var artist Artist
+	err = json.NewDecoder(resp.Body).Decode(&artist)
+	if err != nil {
+		return "", err
+	}
+
+	return artist.Image, nil
+}
+
+// FetchFirstAlbum récupère la date du premier album d'un artiste
+func FetchFirstAlbum(url string) (string, error) {
+	resp, err := httpClient.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return "", errors.New("API error: " + resp.Status)
+	}
+
+	var artist Artist
+	err = json.NewDecoder(resp.Body).Decode(&artist)
+	if err != nil {
+		return "", err
+	}
+
+	return artist.FirstAlbum, nil
+}
+
+// FetchMembers récupère la liste des membres d'un artiste
+func FetchMembers(url string) ([]string, error) {
+	resp, err := httpClient.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, errors.New("API error: " + resp.Status)
+	}
+
+	var artist Artist
+	err = json.NewDecoder(resp.Body).Decode(&artist)
+	if err != nil {
+		return nil, err
+	}
+
+	return artist.Members, nil
+}
+
+// FetchCreationDate récupère l'année de création d'un artiste
+func FetchCreationDate(url string) (int, error) {
+	resp, err := httpClient.Get(url)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return 0, errors.New("API error: " + resp.Status)
+	}
+
+	var artist Artist
+	err = json.NewDecoder(resp.Body).Decode(&artist)
+	if err != nil {
+		return 0, err
+	}
+
+	return artist.CreationDate, nil
+}

@@ -1,14 +1,17 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"sort"
 	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/widget"
 
 	api "groupie/models"
@@ -51,6 +54,26 @@ func main() {
 			fyne.TextStyle{Bold: true},
 		)
 
+		// Image de l'artiste
+		var artistImage *canvas.Image
+		if artist.Image != "" {
+			imageURI := storage.NewURI(artist.Image)
+			artistImage = canvas.NewImageFromURI(imageURI)
+			artistImage.FillMode = canvas.ImageFillContain
+			artistImage.SetMinSize(fyne.NewSize(300, 300))
+		} else {
+			// Si l'URL est invalide, on affiche un label à la place
+			artistImage = nil
+		}
+
+		// Labels pour les informations de base
+		firstAlbumLabel := widget.NewLabel("Premier Album: " + artist.FirstAlbum)
+		membersLabel := widget.NewLabel("Membres: " + strings.Join(artist.Members, ", "))
+		creationLabel := widget.NewLabel(fmt.Sprintf("Année de Création: %d", artist.CreationDate))
+
+		firstAlbumLabel.Wrapping = fyne.TextWrapWord
+		membersLabel.Wrapping = fyne.TextWrapWord
+
 		// Labels affichés avant chargement réel
 		locLabel := widget.NewLabel("Chargement des localisations...")
 		dateLabel := widget.NewLabel("Chargement des dates...")
@@ -69,15 +92,37 @@ func main() {
 		backBtn := widget.NewButton("Retour", func() { showList() })
 
 		// Mise en page verticale
-		content := container.NewVBox(
-			header,
-			widget.NewSeparator(),
-			locLabel,
-			dateLabel,
-			relLabel,
-			layout.NewSpacer(),
-			backBtn,
-		)
+		var content *fyne.Container
+		if artistImage != nil {
+			content = container.NewVBox(
+				header,
+				widget.NewSeparator(),
+				artistImage,
+				firstAlbumLabel,
+				membersLabel,
+				creationLabel,
+				widget.NewSeparator(),
+				locLabel,
+				dateLabel,
+				relLabel,
+				layout.NewSpacer(),
+				backBtn,
+			)
+		} else {
+			content = container.NewVBox(
+				header,
+				widget.NewSeparator(),
+				firstAlbumLabel,
+				membersLabel,
+				creationLabel,
+				widget.NewSeparator(),
+				locLabel,
+				dateLabel,
+				relLabel,
+				layout.NewSpacer(),
+				backBtn,
+			)
+		}
 
 		w.SetContent(container.NewVScroll(content))
 	}
