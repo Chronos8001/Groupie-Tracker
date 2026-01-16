@@ -17,14 +17,22 @@ import (
 	api "groupie/models"
 )
 
+func noFilterSelected(filters ...*widget.Check) bool {
+	for _, f := range filters {
+		if f.Checked {
+			return false
+		}
+	}
+	return true
+}
+
 func main() {
 
-	// Création de l'application Fyne
 	groupie := app.New()
 	w := groupie.NewWindow("Groupie Tracker")
 	w.Resize(fyne.NewSize(400, 600))
 
-	// 1. Récupération des artistes depuis l'API
+	// --- 1. Fetch API ---
 	log.Println("Téléchargement des artistes...")
 	artists, err := api.FetchArtists()
 	if err != nil {
@@ -33,65 +41,48 @@ func main() {
 		return
 	}
 
-	// 2. Tri alphabétique initial (A → Z)
+	// Tri initial
 	sort.Slice(artists, func(i, j int) bool {
 		return strings.ToLower(artists[i].Name) < strings.ToLower(artists[j].Name)
 	})
 
-	// Liste filtrée (celle réellement affichée)
+	// Liste filtrée
 	filtered := make([]api.Artist, len(artists))
 	copy(filtered, artists)
 
-	var showList func() // Déclaration pour pouvoir rappeler la liste
+	var showList func()
 
-	// 3. Page de détails d'un artiste
+	// --- 2. Page détails ---
 	showDetails := func(artist api.Artist) {
 
-		// Titre avec nom de l'artiste
 		header := widget.NewLabelWithStyle(
 			artist.Name,
 			fyne.TextAlignCenter,
 			fyne.TextStyle{Bold: true},
 		)
 
-		// Image de l'artiste
 		var artistImage *canvas.Image
 		if artist.Image != "" {
 			imageURI := storage.NewURI(artist.Image)
 			artistImage = canvas.NewImageFromURI(imageURI)
 			artistImage.FillMode = canvas.ImageFillContain
 			artistImage.SetMinSize(fyne.NewSize(300, 300))
-		} else {
-			// Si l'URL est invalide, on affiche un label à la place
-			artistImage = nil
 		}
 
-		// Labels pour les informations de base
 		firstAlbumLabel := widget.NewLabel("Premier Album: " + artist.FirstAlbum)
 		membersLabel := widget.NewLabel("Membres: " + strings.Join(artist.Members, ", "))
 		creationLabel := widget.NewLabel(fmt.Sprintf("Année de Création: %d", artist.CreationDate))
 
-		firstAlbumLabel.Wrapping = fyne.TextWrapWord
-		membersLabel.Wrapping = fyne.TextWrapWord
-
-		// Labels affichés avant chargement réel
 		locLabel := widget.NewLabel("Chargement des localisations...")
 		dateLabel := widget.NewLabel("Chargement des dates...")
 		relLabel := widget.NewLabel("Chargement des relations...")
 
-		locLabel.Wrapping = fyne.TextWrapWord
-		dateLabel.Wrapping = fyne.TextWrapWord
-		relLabel.Wrapping = fyne.TextWrapWord
-
-		// Chargement asynchrone pour ne pas bloquer l'interface
 		go func() { locLabel.SetText("Localisations:\n" + api.FetchLocation(artist.LocationsURL)) }()
 		go func() { dateLabel.SetText("Dates:\n" + api.FetchDates(artist.ConcertDates)) }()
 		go func() { relLabel.SetText("Relations:\n" + api.FetchRelations(artist.RelationsURL)) }()
 
-		// Bouton retour
 		backBtn := widget.NewButton("Retour", func() { showList() })
 
-		// Mise en page verticale
 		var content *fyne.Container
 		if artistImage != nil {
 			content = container.NewVBox(
@@ -127,63 +118,120 @@ func main() {
 		w.SetContent(container.NewVScroll(content))
 	}
 
-	// 4. Liste principale des artistes
+	// --- 3. Liste principale ---
 	var list *widget.List
 
 	list = widget.NewList(
-		// Nombre d'éléments affichés = taille de la liste filtrée
 		func() int { return len(filtered) },
-
-		// Template d'un élément (un bouton)
 		func() fyne.CanvasObject {
 			btn := widget.NewButton("Nom", nil)
 			btn.Alignment = widget.ButtonAlignLeading
 			return btn
 		},
-
-		// Remplissage d'un élément avec les données réelles
 		func(i widget.ListItemID, o fyne.CanvasObject) {
 			artist := filtered[i]
 			button := o.(*widget.Button)
 			button.SetText(artist.Name)
-
-			// Clic → page de détails
 			button.OnTapped = func() { showDetails(artist) }
 		},
 	)
 
-	// 5. Barre de recherche dynamique (façon Google)
+	// --- 4. Barre de recherche ---
 	search := widget.NewEntry()
 	search.SetPlaceHolder("Rechercher un artiste...")
 
+	// On agrandit la barre via un container
+	searchContainer := container.NewGridWrap(fyne.NewSize(260, 40), search)
+
+	// --- 5. Bouton Filtres ---
+	filterBtn := widget.NewButton("Filtres", nil)
+
+	filterArtist := widget.NewCheck("Artistes", nil)
+	filterMembers := widget.NewCheck("Membres", nil)
+	filterLocations := widget.NewCheck("Lieux", nil)
+	filterFirstAlbum := widget.NewCheck("Premier album", nil)
+	filterCreation := widget.NewCheck("Création", nil)
+
+	filterMenu := container.NewVBox(
+		widget.NewLabel("Filtrer par :"),
+		filterArtist,
+		filterMembers,
+		filterLocations,
+		filterFirstAlbum,
+		filterCreation,
+	)
+	filterMenu.Hide()
+
+	filterBtn.OnTapped = func() {
+		if filterMenu.Visible() {
+			filterMenu.Hide()
+		} else {
+			filterMenu.Show()
+		}
+	}
+
+	// --- 6. Recherche + filtres fonctionnels ---
 	search.OnChanged = func(text string) {
 
-		// On convertit en minuscule pour comparer proprement les caractères ASCII
 		text = strings.ToLower(text)
-
-		// On vide la liste filtrée
 		filtered = filtered[:0]
 
-		// On parcourt la liste complète
 		for _, a := range artists {
-			name := strings.ToLower(a.Name)
 
-			// Recherche façon Google :
-			// si le nom contient ce que l'utilisateur tape → on garde
-			if strings.Contains(name, text) {
+			match := false
+			noFilter := noFilterSelected(filterArtist, filterMembers, filterLocations, filterFirstAlbum, filterCreation)
+
+			// ARTISTES
+			if filterArtist.Checked || noFilter {
+				if strings.Contains(strings.ToLower(a.Name), text) {
+					match = true
+				}
+			}
+
+			// MEMBRES
+			if filterMembers.Checked || noFilter {
+				for _, m := range a.Members {
+					if strings.Contains(strings.ToLower(m), text) {
+						match = true
+					}
+				}
+			}
+
+			// LIEUX
+			if filterLocations.Checked || noFilter {
+				loc := strings.ToLower(api.FetchLocation(a.LocationsURL))
+				if strings.Contains(loc, text) {
+					match = true
+				}
+			}
+
+			// PREMIER ALBUM
+			if filterFirstAlbum.Checked || noFilter {
+				if strings.Contains(strings.ToLower(a.FirstAlbum), text) {
+					match = true
+				}
+			}
+
+			// DATE DE CREATION
+			if filterCreation.Checked || noFilter {
+				if strings.Contains(strings.ToLower(fmt.Sprint(a.CreationDate)), text) {
+					match = true
+				}
+			}
+
+			if match {
 				filtered = append(filtered, a)
 			}
 		}
 
-		// TRI ALPHABÉTIQUE DES RÉSULTATS FILTRÉS
 		sort.Slice(filtered, func(i, j int) bool {
 			return strings.ToLower(filtered[i].Name) < strings.ToLower(filtered[j].Name)
 		})
 
-		// Mise à jour visuelle
 		list.Refresh()
 	}
-	// 6. Affichage principal (liste + recherche)
+
+	// --- 7. Layout principal ---
 	showList = func() {
 
 		title := widget.NewLabelWithStyle(
@@ -192,11 +240,19 @@ func main() {
 			fyne.TextStyle{Bold: true},
 		)
 
-		// Border layout :
-		// Haut = titre + barre de recherche
-		// Centre = liste filtrée
+		// Search large à gauche, filtre à droite
+		topBar := container.NewHBox(
+			searchContainer,
+			layout.NewSpacer(),
+			filterBtn,
+		)
+
 		content := container.NewBorder(
-			container.NewVBox(title, search),
+			container.NewVBox(
+				title,
+				topBar,
+				filterMenu,
+			),
 			nil, nil, nil,
 			list,
 		)
@@ -204,7 +260,6 @@ func main() {
 		w.SetContent(content)
 	}
 
-	// Affichage initial
 	showList()
 	w.ShowAndRun()
 }
