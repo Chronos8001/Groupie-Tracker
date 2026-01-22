@@ -127,6 +127,9 @@ func main() {
 	w := groupie.NewWindow("Groupie Tracker")
 	w.Resize(fyne.NewSize(400, 600))
 
+	// Variable pour savoir si on est sur la page de détails
+	var isDetailsPage bool = false
+
 	// --- 1. Fetch API ---
 	log.Println("Téléchargement des artistes...")
 	artists, err := api.FetchArtists()
@@ -149,6 +152,7 @@ func main() {
 
 	// --- 2. Page détails ---
 	showDetails := func(artist api.Artist) {
+		isDetailsPage = true
 
 		header := widget.NewLabelWithStyle(
 			artist.Name,
@@ -180,7 +184,7 @@ func main() {
 			showMap(artist, w)
 		})
 
-		backBtn := widget.NewButton("Retour", func() { showList() })
+		backBtn := widget.NewButton("Retour (Échap)", func() { showList() })
 
 		var content *fyne.Container
 		if artistImage != nil {
@@ -237,13 +241,13 @@ func main() {
 
 	// --- 4. Barre de recherche ---
 	search := widget.NewEntry()
-	search.SetPlaceHolder("Rechercher un artiste...")
+	search.SetPlaceHolder("Rechercher un artiste... (Ctrl+F)")
 
 	// On agrandit la barre via un container
 	searchContainer := container.NewGridWrap(fyne.NewSize(260, 40), search)
 
 	// --- 5. Bouton Filtres ---
-	filterBtn := widget.NewButton("Filtres", nil)
+	filterBtn := widget.NewButton("Filtres (Ctrl+M)", nil)
 
 	filterArtist := widget.NewCheck("Artistes", nil)
 	filterMembers := widget.NewCheck("Membres", nil)
@@ -332,6 +336,7 @@ func main() {
 
 	// --- 7. Layout principal ---
 	showList = func() {
+		isDetailsPage = false
 
 		title := widget.NewLabelWithStyle(
 			"Liste des Artistes",
@@ -358,6 +363,60 @@ func main() {
 
 		w.SetContent(content)
 	}
+
+	// --- 8. Raccourcis clavier ---
+	w.Canvas().SetOnTypedKey(func(key *fyne.KeyEvent) {
+		switch key.Name {
+		case fyne.KeyEscape:
+			// Échap: Retour à la liste principale
+			if isDetailsPage {
+				showList()
+			}
+
+		case fyne.KeyReturn, fyne.KeyEnter:
+			// Entrée: Ouvrir le premier résultat de recherche
+			if !isDetailsPage && len(filtered) > 0 {
+				showDetails(filtered[0])
+			}
+		}
+	})
+
+	w.Canvas().AddShortcut(&fyne.ShortcutCopy{}, func(shortcut fyne.Shortcut) {})
+
+	// Ctrl+F: Focus sur la recherche
+	ctrlF := &fyne.KeyboardShortcut{
+		KeyName:  fyne.KeyF,
+		Modifier: fyne.KeyModifierControl,
+	}
+	w.Canvas().AddShortcut(ctrlF, func(shortcut fyne.Shortcut) {
+		if !isDetailsPage {
+			w.Canvas().Focus(search)
+		}
+	})
+
+	// Ctrl+M: Afficher/masquer les filtres
+	ctrlM := &fyne.KeyboardShortcut{
+		KeyName:  fyne.KeyM,
+		Modifier: fyne.KeyModifierControl,
+	}
+	w.Canvas().AddShortcut(ctrlM, func(shortcut fyne.Shortcut) {
+		if !isDetailsPage {
+			if filterMenu.Visible() {
+				filterMenu.Hide()
+			} else {
+				filterMenu.Show()
+			}
+		}
+	})
+
+	// Ctrl+Q: Quitter l'application
+	ctrlQ := &fyne.KeyboardShortcut{
+		KeyName:  fyne.KeyQ,
+		Modifier: fyne.KeyModifierControl,
+	}
+	w.Canvas().AddShortcut(ctrlQ, func(shortcut fyne.Shortcut) {
+		groupie.Quit()
+	})
 
 	showList()
 	w.ShowAndRun()
