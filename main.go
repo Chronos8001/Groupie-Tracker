@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 
 	"fyne.io/fyne/v2"
@@ -24,6 +26,99 @@ func noFilterSelected(filters ...*widget.Check) bool {
 		}
 	}
 	return true
+}
+
+// showMap affiche une carte avec les lieux de concerts de l'artiste
+func showMap(artist api.Artist, w fyne.Window) {
+	mapWindow := fyne.CurrentApp().NewWindow("Carte - " + artist.Name)
+	mapWindow.Resize(fyne.NewSize(800, 600))
+
+	// Récupérer les lieux
+	locationsText := api.FetchLocation(artist.LocationsURL)
+	locations := strings.Split(locationsText, "\n")
+
+	if len(locations) == 0 || locationsText == "" {
+		mapWindow.SetContent(widget.NewLabel("Aucun lieu de concert disponible"))
+		mapWindow.Show()
+		return
+	}
+
+	// Créer une liste des lieux avec leurs coordonnées
+	var mapContent *fyne.Container
+	locationsList := container.NewVBox()
+
+	for _, loc := range locations {
+		loc = strings.TrimSpace(loc)
+		if loc == "" {
+			continue
+		}
+
+		// Nettoyer le nom de la ville
+		cleanLoc := strings.ReplaceAll(loc, "_", " ")
+		cleanLoc = strings.ReplaceAll(cleanLoc, "-", ", ")
+
+		locationLabel := widget.NewLabel("📍 " + cleanLoc)
+		locationsList.Add(locationLabel)
+
+		// Essayer de récupérer les coordonnées et afficher une mini-carte
+		go func(cityName string, label *widget.Label) {
+			lat, lon, err := GetCoordinates(cityName)
+			if err == nil {
+				label.SetText(cityName + fmt.Sprintf(" (%.4s, %.4s)", lat, lon))
+			}
+		}(cleanLoc, locationLabel)
+	}
+
+	// Prendre le premier lieu pour afficher une carte centrée
+	if len(locations) > 0 {
+		firstLoc := strings.TrimSpace(locations[0])
+		cleanLoc := strings.ReplaceAll(firstLoc, "_", " ")
+		cleanLoc = strings.ReplaceAll(cleanLoc, "-", ", ")
+
+		go func() {
+			lat, lon, err := GetCoordinates(cleanLoc)
+			if err == nil {
+				// Convertir lat/lon en float
+				latF, _ := strconv.ParseFloat(lat, 64)
+				lonF, _ := strconv.ParseFloat(lon, 64)
+
+				// Récupérer la tuile de carte
+				zoom := 4
+				tileURL := GetOSMTileURL(latF, lonF, zoom)
+
+				// Télécharger l'image
+				resp, err := http.Get(tileURL)
+				if err == nil {
+					defer resp.Body.Close()
+					mapImage := canvas.NewImageFromReader(resp.Body, "map")
+					mapImage.FillMode = canvas.ImageFillContain
+					mapImage.SetMinSize(fyne.NewSize(600, 400))
+
+					mapContent = container.NewBorder(
+						widget.NewLabelWithStyle("Lieux de concerts de "+artist.Name, fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+						nil, nil, nil,
+						container.NewHSplit(
+							mapImage,
+							container.NewVScroll(locationsList),
+						),
+					)
+					mapWindow.SetContent(mapContent)
+				}
+			}
+		}()
+	}
+
+	// Contenu par défaut pendant le chargement
+	if mapContent == nil {
+		mapContent = container.NewBorder(
+			widget.NewLabelWithStyle("Lieux de concerts de "+artist.Name, fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+			nil, nil, nil,
+			container.NewVScroll(locationsList),
+		)
+		mapWindow.SetContent(mapContent)
+	}
+
+	mapWindow.Show()
 }
 
 func main() {
@@ -81,6 +176,10 @@ func main() {
 		go func() { dateLabel.SetText("Dates:\n" + api.FetchDates(artist.ConcertDates)) }()
 		go func() { relLabel.SetText("Relations:\n" + api.FetchRelations(artist.RelationsURL)) }()
 
+		mapBtn := widget.NewButton("Voir sur la carte", func() {
+			showMap(artist, w)
+		})
+
 		backBtn := widget.NewButton("Retour", func() { showList() })
 
 		var content *fyne.Container
@@ -97,7 +196,7 @@ func main() {
 				dateLabel,
 				relLabel,
 				layout.NewSpacer(),
-				backBtn,
+				container.NewGridWithColumns(2, mapBtn, backBtn),
 			)
 		} else {
 			content = container.NewVBox(
@@ -111,7 +210,7 @@ func main() {
 				dateLabel,
 				relLabel,
 				layout.NewSpacer(),
-				backBtn,
+				container.NewGridWithColumns(2, mapBtn, backBtn),
 			)
 		}
 
