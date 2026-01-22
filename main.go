@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"image/color"
 	"log"
 	"net/http"
 	"sort"
@@ -12,8 +13,9 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/storage"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	api "groupie/models"
@@ -26,6 +28,21 @@ func noFilterSelected(filters ...*widget.Check) bool {
 		}
 	}
 	return true
+}
+
+// createCard crée une card stylisée avec un fond et des bordures arrondies
+func createCard(content fyne.CanvasObject) *fyne.Container {
+	bg := canvas.NewRectangle(color.NRGBA{R: 40, G: 40, B: 50, A: 255})
+	return container.NewStack(bg, container.NewPadded(content))
+}
+
+// createInfoLabel crée un label stylisé pour les informations
+func createInfoLabel(icon, text string) *widget.RichText {
+	rt := widget.NewRichText(
+		&widget.TextSegment{Text: icon + " ", Style: widget.RichTextStyle{SizeName: theme.SizeNameHeadingText}},
+		&widget.TextSegment{Text: text},
+	)
+	return rt
 }
 
 // showMap affiche une carte avec les lieux de concerts de l'artiste
@@ -57,14 +74,15 @@ func showMap(artist api.Artist, w fyne.Window) {
 		cleanLoc := strings.ReplaceAll(loc, "_", " ")
 		cleanLoc = strings.ReplaceAll(cleanLoc, "-", ", ")
 
-		locationLabel := widget.NewLabel("📍 " + cleanLoc)
-		locationsList.Add(locationLabel)
+		locationLabel := widget.NewRichTextWithText(cleanLoc)
+		locationCard := createCard(locationLabel)
+		locationsList.Add(locationCard)
 
 		// Essayer de récupérer les coordonnées et afficher une mini-carte
-		go func(cityName string, label *widget.Label) {
+		go func(cityName string, label *widget.RichText) {
 			lat, lon, err := GetCoordinates(cityName)
 			if err == nil {
-				label.SetText(cityName + fmt.Sprintf(" (%.4s, %.4s)", lat, lon))
+				label.ParseMarkdown(cityName + fmt.Sprintf(" (%.4s, %.4s)", lat, lon))
 			}
 		}(cleanLoc, locationLabel)
 	}
@@ -124,8 +142,11 @@ func showMap(artist api.Artist, w fyne.Window) {
 func main() {
 
 	groupie := app.New()
+	groupie.Settings().SetTheme(theme.DarkTheme())
+
 	w := groupie.NewWindow("Groupie Tracker")
-	w.Resize(fyne.NewSize(400, 600))
+	w.Resize(fyne.NewSize(90, 70))
+	w.CenterOnScreen()
 
 	// Variable pour savoir si on est sur la page de détails
 	var isDetailsPage bool = false
@@ -154,71 +175,100 @@ func main() {
 	showDetails := func(artist api.Artist) {
 		isDetailsPage = true
 
-		header := widget.NewLabelWithStyle(
-			artist.Name,
-			fyne.TextAlignCenter,
-			fyne.TextStyle{Bold: true},
-		)
+		// Header avec titre stylisé
+		header := widget.NewRichTextFromMarkdown("# " + artist.Name)
+		header.Wrapping = fyne.TextWrapWord
 
+		// Image de l'artiste avec style
 		var artistImage *canvas.Image
 		if artist.Image != "" {
 			imageURI := storage.NewURI(artist.Image)
 			artistImage = canvas.NewImageFromURI(imageURI)
 			artistImage.FillMode = canvas.ImageFillContain
-			artistImage.SetMinSize(fyne.NewSize(300, 300))
+			artistImage.SetMinSize(fyne.NewSize(350, 350))
 		}
 
-		firstAlbumLabel := widget.NewLabel("Premier Album: " + artist.FirstAlbum)
-		membersLabel := widget.NewLabel("Membres: " + strings.Join(artist.Members, ", "))
-		creationLabel := widget.NewLabel(fmt.Sprintf("Année de Création: %d", artist.CreationDate))
+		// Informations principales
+		firstAlbumLabel := createInfoLabel("", "Premier Album: "+artist.FirstAlbum)
+		membersLabel := createInfoLabel("", "Membres: "+strings.Join(artist.Members, ", "))
+		creationLabel := createInfoLabel("", fmt.Sprintf("Année de Création: %d", artist.CreationDate))
 
+		// Card pour les infos principales
+		infoCard := createCard(container.NewVBox(
+			firstAlbumLabel,
+			widget.NewSeparator(),
+			membersLabel,
+			widget.NewSeparator(),
+			creationLabel,
+		))
+
+		// Labels pour les données asynchrones
 		locLabel := widget.NewLabel("Chargement des localisations...")
 		dateLabel := widget.NewLabel("Chargement des dates...")
 		relLabel := widget.NewLabel("Chargement des relations...")
 
-		go func() { locLabel.SetText("Localisations:\n" + api.FetchLocation(artist.LocationsURL)) }()
-		go func() { dateLabel.SetText("Dates:\n" + api.FetchDates(artist.ConcertDates)) }()
-		go func() { relLabel.SetText("Relations:\n" + api.FetchRelations(artist.RelationsURL)) }()
+		locLabel.Wrapping = fyne.TextWrapWord
+		dateLabel.Wrapping = fyne.TextWrapWord
+		relLabel.Wrapping = fyne.TextWrapWord
 
+		go func() {
+			locData := api.FetchLocation(artist.LocationsURL)
+			locLabel.SetText("Localisations:\n" + locData)
+		}()
+		go func() {
+			dateData := api.FetchDates(artist.ConcertDates)
+			dateLabel.SetText("Dates:\n" + dateData)
+		}()
+		go func() {
+			relData := api.FetchRelations(artist.RelationsURL)
+			relLabel.SetText("Relations:\n" + relData)
+		}()
+
+		// Cards pour les sections de données
+		locCard := createCard(locLabel)
+		dateCard := createCard(dateLabel)
+		relCard := createCard(relLabel)
+
+		// Boutons avec style amélioré
 		mapBtn := widget.NewButton("Voir sur la carte", func() {
 			showMap(artist, w)
 		})
+		mapBtn.Importance = widget.HighImportance
 
 		backBtn := widget.NewButton("Retour (Échap)", func() { showList() })
 
+		buttonBar := container.NewGridWithColumns(2, mapBtn, backBtn)
+
+		// Organisation du contenu
 		var content *fyne.Container
 		if artistImage != nil {
+			imageCard := createCard(container.NewCenter(artistImage))
 			content = container.NewVBox(
-				header,
-				widget.NewSeparator(),
-				artistImage,
-				firstAlbumLabel,
-				membersLabel,
-				creationLabel,
-				widget.NewSeparator(),
-				locLabel,
-				dateLabel,
-				relLabel,
-				layout.NewSpacer(),
-				container.NewGridWithColumns(2, mapBtn, backBtn),
+				container.NewPadded(header),
+				imageCard,
+				container.NewPadded(widget.NewSeparator()),
+				infoCard,
+				container.NewPadded(widget.NewSeparator()),
+				locCard,
+				dateCard,
+				relCard,
+				container.NewPadded(widget.NewSeparator()),
+				buttonBar,
 			)
 		} else {
 			content = container.NewVBox(
-				header,
-				widget.NewSeparator(),
-				firstAlbumLabel,
-				membersLabel,
-				creationLabel,
-				widget.NewSeparator(),
-				locLabel,
-				dateLabel,
-				relLabel,
-				layout.NewSpacer(),
-				container.NewGridWithColumns(2, mapBtn, backBtn),
+				container.NewPadded(header),
+				infoCard,
+				container.NewPadded(widget.NewSeparator()),
+				locCard,
+				dateCard,
+				relCard,
+				container.NewPadded(widget.NewSeparator()),
+				buttonBar,
 			)
 		}
 
-		w.SetContent(container.NewVScroll(content))
+		w.SetContent(container.NewPadded(container.NewVScroll(content)))
 	}
 
 	// --- 3. Liste principale ---
@@ -227,27 +277,33 @@ func main() {
 	list = widget.NewList(
 		func() int { return len(filtered) },
 		func() fyne.CanvasObject {
-			btn := widget.NewButton("Nom", nil)
-			btn.Alignment = widget.ButtonAlignLeading
-			return btn
+			label := widget.NewLabel("Nom")
+			label.TextStyle = fyne.TextStyle{Bold: false}
+			return container.NewPadded(label)
 		},
 		func(i widget.ListItemID, o fyne.CanvasObject) {
 			artist := filtered[i]
-			button := o.(*widget.Button)
-			button.SetText(artist.Name)
-			button.OnTapped = func() { showDetails(artist) }
+			containerObj := o.(*fyne.Container)
+			label := containerObj.Objects[0].(*widget.Label)
+			label.SetText(artist.Name)
 		},
 	)
+	list.OnSelected = func(id widget.ListItemID) {
+		if id < len(filtered) {
+			showDetails(filtered[id])
+		}
+	}
 
 	// --- 4. Barre de recherche ---
 	search := widget.NewEntry()
 	search.SetPlaceHolder("Rechercher un artiste... (Ctrl+F)")
 
 	// On agrandit la barre via un container
-	searchContainer := container.NewGridWrap(fyne.NewSize(260, 40), search)
+	searchContainer := container.NewPadded(search)
 
 	// --- 5. Bouton Filtres ---
 	filterBtn := widget.NewButton("Filtres (Ctrl+M)", nil)
+	filterBtn.Importance = widget.MediumImportance
 
 	filterArtist := widget.NewCheck("Artistes", nil)
 	filterMembers := widget.NewCheck("Membres", nil)
@@ -255,14 +311,16 @@ func main() {
 	filterFirstAlbum := widget.NewCheck("Premier album", nil)
 	filterCreation := widget.NewCheck("Création", nil)
 
-	filterMenu := container.NewVBox(
-		widget.NewLabel("Filtrer par :"),
+	filterMenuContent := container.NewVBox(
+		widget.NewLabelWithStyle("Filtrer par :", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewSeparator(),
 		filterArtist,
 		filterMembers,
 		filterLocations,
 		filterFirstAlbum,
 		filterCreation,
 	)
+	filterMenu := createCard(filterMenuContent)
 	filterMenu.Hide()
 
 	filterBtn.OnTapped = func() {
@@ -338,23 +396,39 @@ func main() {
 	showList = func() {
 		isDetailsPage = false
 
-		title := widget.NewLabelWithStyle(
-			"Liste des Artistes",
-			fyne.TextAlignCenter,
-			fyne.TextStyle{Bold: true},
+		// Header avec titre et compteur
+		title := canvas.NewText("Groupie Tracker", color.White)
+		title.TextSize = 24
+		title.TextStyle = fyne.TextStyle{Bold: true}
+		title.Alignment = fyne.TextAlignCenter
+
+		resultCount := widget.NewLabel(fmt.Sprintf("%d artiste(s)", len(filtered)))
+		resultCount.Alignment = fyne.TextAlignCenter
+		resultCount.TextStyle = fyne.TextStyle{Italic: true}
+
+		headerBox := container.NewVBox(
+			title,
+			resultCount,
 		)
 
 		// Search large à gauche, filtre à droite
-		topBar := container.NewHBox(
+		topBar := container.NewBorder(
+			nil, nil, nil, filterBtn,
 			searchContainer,
-			layout.NewSpacer(),
-			filterBtn,
 		)
+
+		// Mettre à jour le compteur après chaque recherche
+		oldOnChanged := search.OnChanged
+		search.OnChanged = func(text string) {
+			oldOnChanged(text)
+			resultCount.SetText(fmt.Sprintf("%d artiste(s)", len(filtered)))
+		}
 
 		content := container.NewBorder(
 			container.NewVBox(
-				title,
-				topBar,
+				headerBox,
+				widget.NewSeparator(),
+				container.NewPadded(topBar),
 				filterMenu,
 			),
 			nil, nil, nil,
@@ -384,7 +458,7 @@ func main() {
 	w.Canvas().AddShortcut(&fyne.ShortcutCopy{}, func(shortcut fyne.Shortcut) {})
 
 	// Ctrl+F: Focus sur la recherche
-	ctrlF := &fyne.KeyboardShortcut{
+	ctrlF := &desktop.CustomShortcut{
 		KeyName:  fyne.KeyF,
 		Modifier: fyne.KeyModifierControl,
 	}
@@ -395,7 +469,7 @@ func main() {
 	})
 
 	// Ctrl+M: Afficher/masquer les filtres
-	ctrlM := &fyne.KeyboardShortcut{
+	ctrlM := &desktop.CustomShortcut{
 		KeyName:  fyne.KeyM,
 		Modifier: fyne.KeyModifierControl,
 	}
@@ -410,7 +484,7 @@ func main() {
 	})
 
 	// Ctrl+Q: Quitter l'application
-	ctrlQ := &fyne.KeyboardShortcut{
+	ctrlQ := &desktop.CustomShortcut{
 		KeyName:  fyne.KeyQ,
 		Modifier: fyne.KeyModifierControl,
 	}
